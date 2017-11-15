@@ -89,15 +89,14 @@ def main():
         model = models.__dict__[args.arch](pretrained=True)
     else:
         print("=> creating model '{}'".format(args.arch))
-        #import re
-        #find_resnet = re.compile("resnet")
-        #if find_resnet.match(args.arch):
-        #    import resnet as resnet
-        #    model = resnet.__dict__[args.arch]()
-        #    print(model)
-        model = models.__dict__[args.arch]()
-        print(model)
-
+        import re
+        find_resnet = re.compile("resnet")
+        if find_resnet.match(args.arch):
+            import resnet as resnet
+            model = resnet.__dict__[args.arch]()
+        else:
+            model = models.__dict__[args.arch]()
+        
         if not args.distributed:
             if args.fp16:
                 if args.arch.startswith('alexnet') or args.arch.startswith('vgg'):
