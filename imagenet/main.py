@@ -89,45 +89,42 @@ def main():
         model = models.__dict__[args.arch](pretrained=True)
     else:
         print("=> creating model '{}'".format(args.arch))
-        import re
-        find_resnet = re.compile("resnet")
-        if find_resnet.match(args.arch):
-            import resnet as resnet
-            model = resnet.__dict__[args.arch]()
-        else:
-            model = models.__dict__[args.arch]()
-        
-        if not args.distributed:
-            if args.fp16:
-                if args.arch.startswith('alexnet') or args.arch.startswith('vgg'):
-                    model.features = torch.nn.DataParallel(
-                        nn.Sequential(tofp16(), model.features.cuda().half())
-                    ).cuda()
-                    model.classifier.cuda().half()
-                else:
-                    model = nn.Sequential(tofp16(), model.cuda().half())
-                    model(Variable(torch.randn(int(args.batch_size/torch.cuda.device_count()), 3, 224,224).cuda().half()))
+        model = models.__dict__[args.arch]()
 
-                    model = torch.nn.DataParallel(model).cuda()
-                    
-                global param_copy
-                param_copy = [param.clone().type(torch.cuda.FloatTensor).detach() for param in model.parameters()]
-                for param in param_copy:
-                    param.requires_grad = True
 
+    if not args.distributed:
+        if args.fp16:
+            if args.arch.startswith('alexnet') or args.arch.startswith('vgg'):
+                model.features = torch.nn.DataParallel(
+                    nn.Sequential(tofp16(), model.features.cuda().half())
+                ).cuda()
+                model.classifier.cuda().half()
             else:
-                if args.arch.startswith('alexnet') or args.arch.startswith('vgg'):
-                    model.features = torch.nn.DataParallel(model.features)
-                    model.cuda()
-                else:
-                    model = torch.nn.DataParallel(model).cuda()
-                param_copy = list(model.parameters())
-            
-        if args.distributed:
-            model.cuda()
-            model = torch.nn.parallel.DistributedDataParallel(model)
+                model = nn.Sequential(tofp16(), model.cuda().half())
+                #Work around for fp16 batch norm. Will initialize buffers in correct precision before broadcast.
+                #Without this buffers will keep getting reinitialized to fp32 and not be updated.
+                model(Variable(torch.randn(int(args.batch_size/torch.cuda.device_count()), 3, 224,224).cuda().half()))
+
+                model = torch.nn.DataParallel(model).cuda()
+
+            global param_copy
+            param_copy = [param.clone().type(torch.cuda.FloatTensor).detach() for param in model.parameters()]
+            for param in param_copy:
+                param.requires_grad = True
+
+        else:
+            if args.arch.startswith('alexnet') or args.arch.startswith('vgg'):
+                model.features = torch.nn.DataParallel(model.features)
+                model.cuda()
+            else:
+                model = torch.nn.DataParallel(model).cuda()
             param_copy = list(model.parameters())
-        
+
+    if args.distributed:
+        model.cuda()
+        model = torch.nn.parallel.DistributedDataParallel(model)
+        param_copy = list(model.parameters())
+
     # define loss function (criterion) and optimizer
     criterion = nn.CrossEntropyLoss().cuda()
 
