@@ -1,3 +1,4 @@
+
 import argparse
 import os
 import shutil
@@ -58,13 +59,12 @@ parser.add_argument('--dist-url', default='tcp://224.66.41.62:23456', type=str,
 parser.add_argument('--dist-backend', default='gloo', type=str,
                     help='distributed backend')
 parser.add_argument('--fp16', action='store_true',
-                    help='Run model in pseudo-fp16 mode (fp16 storage fp32 math).')
+                    help='Run model fp16 mode.')
 parser.add_argument('--loss-scale', type=float, default=1,
                     help='Loss scaling, positive power of 2 values can improve fp16 convergence.')
 
 best_prec1 = 0
 cudnn.benchmark = True
-
 
 def main():
     global args, best_prec1
@@ -76,12 +76,12 @@ def main():
         dist.init_process_group(backend=args.dist_backend, init_method=args.dist_url,
                                 world_size=args.world_size)
 
-    if args.fp16 and args.distributed:
-        print("Warning: fp16 not supported with distributed, ignoring fp16.")
-        args.fp16 = False
-
-    if args.fp16 and not args.distributed:
-        replace_with_BN16()
+    if args.fp16:
+        if args.distributed or args.pretrained:
+            print("Warning: fp16 not supported with distributed or pretrained model, ignoring fp16.")
+            args.fp16 = False
+        else:
+            assert torch.backends.cudnn.enabled, "fp16 mode requires cudnn backend to be enabled."
 
     # create model
     if args.pretrained:
@@ -91,21 +91,13 @@ def main():
         print("=> creating model '{}'".format(args.arch))
         model = models.__dict__[args.arch]()
 
-
     if not args.distributed:
         if args.fp16:
             if args.arch.startswith('alexnet') or args.arch.startswith('vgg'):
-                model.features = torch.nn.DataParallel(
-                    nn.Sequential(tofp16(), model.features.cuda().half())
-                ).cuda()
+                model.features = torch.nn.DataParallel( network_to_half(model.features) ).cuda()
                 model.classifier.cuda().half()
             else:
-                model = nn.Sequential(tofp16(), model.cuda().half())
-                #Work around for fp16 batch norm. Will initialize buffers in correct precision before broadcast.
-                #Without this buffers will keep getting reinitialized to fp32 and not be updated.
-                model(Variable(torch.randn(int(args.batch_size/torch.cuda.device_count()), 3, 224,224).cuda().half()))
-
-                model = torch.nn.DataParallel(model).cuda()
+                model = torch.nn.DataParallel( network_to_half(model) ).cuda()
 
             global param_copy
             param_copy = [param.clone().type(torch.cuda.FloatTensor).detach() for param in model.parameters()]

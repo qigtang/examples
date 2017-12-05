@@ -24,6 +24,17 @@ def set_grad(params, params_with_grad):
         param.grad.data.copy_(param_w_grad.grad.data)
 
 
-def replace_with_BN16():
-    from batchnormfp16 import BatchNorm2dFP16 as bnfp16
-    nn.BatchNorm2d = bnfp16
+#BatchNorm layers to have parameters in single precision.
+#Find all layers and convert them back to float. This can't
+#be done with built in .apply as that function will apply
+#fn to all modules, parameters, and buffers. Thus we wouldn't
+#be able to guard the float conversion based on the module type.
+def BN_convert_float(module):
+    if isinstance(module, torch.nn.modules.batchnorm._BatchNorm):
+        module.float()
+    for child in module.children():
+        BN_convert_float(child)
+    return module
+
+def network_to_half(network):
+    return nn.Sequential(tofp16(), BN_convert_float(network.cuda().half()))
