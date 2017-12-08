@@ -148,7 +148,8 @@ def evaluate(data_source):
         data, targets = get_batch(data_source, i, evaluation=True)
         output, hidden = model(data, hidden)
         output_flat = output.view(-1, ntokens)
-        total_loss += len(data) * criterion(output_flat, targets).data
+        #total loss can overflow if accumulated in fp16.
+        total_loss += len(data) * criterion(output_flat, targets).data.float()
         hidden = repackage_hidden(hidden)
     return total_loss[0] / len(data_source)
 
