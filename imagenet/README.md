@@ -3,11 +3,12 @@
 This implements training of popular model architectures, such as ResNet, AlexNet, and VGG on the ImageNet dataset.
 
 ## Requirements
-
 - Install PyTorch ([pytorch.org](http://pytorch.org))
 - `pip install -r requirements.txt`
 - Download the ImageNet dataset and move validation images to labeled subfolders
     - To do this, you can use the following script: https://raw.githubusercontent.com/soumith/imagenetloader.torch/master/valprep.sh
+
+- If you want to run this example in fp16 it is required to merge https://github.com/pytorch/pytorch/pull/2388 into your pytorch source and rebuild 
 
 ## Training
 
