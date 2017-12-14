@@ -142,6 +142,7 @@ class DistributedDataParallel(Module):
         self.flag = True
         return self.module(*_cuda_inputs, **kwargs)
 
+    '''
     def train(self, mode=True):
         # Clear NCCL communicator and CUDA event cache of the default group ID,
         # These cache will be recreated at the later call. This is currently a
@@ -150,7 +151,7 @@ class DistributedDataParallel(Module):
             dist._clear_group_cache()
         super(DistributedDataParallel, self).train(mode)
         self.module.train(mode)
-
+    '''
 
     def _sync_buffers(self):
         buffers = list(self.module._all_buffers())
