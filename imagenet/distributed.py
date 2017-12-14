@@ -106,18 +106,6 @@ class DistributedDataParallel(Module):
         # These cache will be recreated at the later call. This is currently a
         # work-around for a potential NCCL deadlock.
         #dist._clear_group_cache()
-
-
-    def forward(self, *inputs, **kwargs):
-        #inputs, kwargs = self.scatter(inputs, kwargs, self.device_ids)
-        _cuda_inputs = []
-        for input in inputs:
-            _cuda_inputs.append(input.cuda(self.device_ids[0]))
-        _cuda_inputs = tuple(_cuda_inputs)   
-        #self._sync_buffers()
-
-        
-        self.flag = True
         def test():
             if(self.flag):
                 self.flag=False
@@ -142,7 +130,16 @@ class DistributedDataParallel(Module):
             def hook(*unused):
                 param._execution_engine.queue_callback(test)
             param.register_hook(hook)
-            
+
+
+    def forward(self, *inputs, **kwargs):
+        #inputs, kwargs = self.scatter(inputs, kwargs, self.device_ids)
+        _cuda_inputs = []
+        for input in inputs:
+            _cuda_inputs.append(input.cuda(self.device_ids[0]))
+        _cuda_inputs = tuple(_cuda_inputs)   
+        #self._sync_buffers()            
+        self.flag = True
         return self.module(*_cuda_inputs, **kwargs)
 
     def train(self, mode=True):
