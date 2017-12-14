@@ -16,6 +16,7 @@ import torch.utils.data.distributed
 import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 import torchvision.models as models
+from distributed import DistributedDataParallel as DDP
 from fp16util import *
 
 model_names = sorted(name for name in models.__dict__
@@ -54,6 +55,8 @@ parser.add_argument('--pretrained', dest='pretrained', action='store_true',
                     help='use pre-trained model')
 parser.add_argument('--world-size', default=1, type=int,
                     help='number of distributed processes')
+parser.add_argument('--gpu', default=0, type=int,
+                    help='GPU to use for distributed training.')
 parser.add_argument('--dist-url', default='tcp://224.66.41.62:23456', type=str,
                     help='url used to set up distributed training')
 parser.add_argument('--dist-backend', default='gloo', type=str,
@@ -73,15 +76,16 @@ def main():
     args.distributed = args.world_size > 1
 
     if args.distributed:
+        torch.cuda.set_device(args.gpu)
         dist.init_process_group(backend=args.dist_backend, init_method=args.dist_url,
                                 world_size=args.world_size)
 
     if args.fp16:
-        if args.distributed or args.pretrained:
-            print("Warning: fp16 not supported with distributed or pretrained model, ignoring fp16.")
-            args.fp16 = False
-        else:
-            assert torch.backends.cudnn.enabled, "fp16 mode requires cudnn backend to be enabled."
+        #if args.distributed or args.pretrained:
+        #    print("Warning: fp16 not supported with distributed or pretrained model, ignoring fp16.")
+        # args.fp16 = False
+        #else:
+        assert torch.backends.cudnn.enabled, "fp16 mode requires cudnn backend to be enabled."
 
     # create model
     if args.pretrained:
@@ -91,13 +95,17 @@ def main():
         print("=> creating model '{}'".format(args.arch))
         model = models.__dict__[args.arch]()
 
-    if not args.distributed:
+    #todo, remove and fix indentation
+    if True:
         if args.fp16:
             if args.arch.startswith('alexnet') or args.arch.startswith('vgg'):
                 model.features = torch.nn.DataParallel( network_to_half(model.features) ).cuda()
                 model.classifier.cuda().half()
             else:
-                model = torch.nn.DataParallel( network_to_half(model) ).cuda()
+                if args.distributed:
+                    model = DDP( network_to_half(model), device_ids = [args.gpu] ).cuda()
+                else:
+                    model = torch.nn.DataParallel( network_to_half(model) ).cuda()
 
             global param_copy
             param_copy = [param.clone().type(torch.cuda.FloatTensor).detach() for param in model.parameters()]
@@ -106,16 +114,22 @@ def main():
 
         else:
             if args.arch.startswith('alexnet') or args.arch.startswith('vgg'):
-                model.features = torch.nn.DataParallel(model.features)
-                model.cuda()
+                if args.distributed:
+                    model.features = DDP(model.features.cuda(), device_ids = [args.gpu])
+                else:
+                    model.features = torch.nn.DataParallel(model.features)
+                    model.cuda()
             else:
-                model = torch.nn.DataParallel(model).cuda()
-            param_copy = list(model.parameters())
+                if args.distributed:
+                    model = DDP(model.cuda(), device_ids = [args.gpu])
+                else:
+                    model = torch.nn.DataParallel(model).cuda()
+                param_copy = list(model.parameters())
 
-    if args.distributed:
-        model.cuda()
-        model = torch.nn.parallel.DistributedDataParallel(model)
-        param_copy = list(model.parameters())
+    #if args.distributed:
+    #    model.cuda()
+    #    model = DDP(model, device_ids=[args.gpu])
+    #    param_copy = list(model.parameters())
 
     # define loss function (criterion) and optimizer
     criterion = nn.CrossEntropyLoss().cuda()
@@ -233,7 +247,9 @@ def train(train_loader, model, criterion, optimizer, epoch):
 
         if args.fp16:
             model.zero_grad()
+            print("Start backward")
             loss.backward()
+            print("Backward finished")
             if args.loss_scale != 1:
                 for param in model.parameters():
                     param.grad.data = param.grad.data/args.loss_scale
