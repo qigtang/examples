@@ -84,7 +84,7 @@ class DistributedDataParallel(Module):
     def __init__(self, module, device_ids=None, output_device=None, dim=0):
         super(DistributedDataParallel, self).__init__()
 
-        if device_ids is None or len(device_ids)>1 or dist._backend != dist.dist_backend.NCCL:
+        if device_ids is None or len(device_ids)>1:# or dist._backend != dist.dist_backend.NCCL:
             raise RuntimeError("This version of DistributedDataParallel requires NCCL as backend and a single GPU/process.")
         if output_device is None:
             output_device = device_ids[0]
@@ -93,16 +93,19 @@ class DistributedDataParallel(Module):
         self.module = module
         self.device_ids = device_ids
 
-        self._nccl_stream = torch.cuda.Stream()
+        #self._nccl_stream = torch.cuda.Stream()
 
         # Sync params and buffers
         for p in self.module.state_dict().values():
             dist.broadcast(p, 0)
+            
+        for param in list(module.parameters()):
+            dist.broadcast(param.data, 0)
 
         # Clear NCCL communicator and CUDA event cache of the default group ID,
         # These cache will be recreated at the later call. This is currently a
         # work-around for a potential NCCL deadlock.
-        dist._clear_group_cache()
+        #dist._clear_group_cache()
 
 
     def forward(self, *inputs, **kwargs):
@@ -111,33 +114,35 @@ class DistributedDataParallel(Module):
         for input in inputs:
             _cuda_inputs.append(input.cuda(self.device_ids[0]))
         _cuda_inputs = tuple(_cuda_inputs)   
-        self._sync_buffers()
+        #self._sync_buffers()
 
         
         self.flag = True
         def test():
             if(self.flag):
+                self.flag=False
                 buckets = {}
                 for param in self.module.parameters():
                     if param.requires_grad:
-                        tp = type(p.data)
+                        tp = type(param.data)
                         if tp not in buckets:
                             buckets[tp]=[]
                         buckets[tp].append(param)
-                for tp, bucket in buckets.iteritems():
-                    grads = [param.data.grad.data for param in bucket]
+                for tp in buckets:
+                    bucket = buckets[tp]
+                    grads = [param.grad.data for param in bucket]
                     coalesced = _flatten_dense_tensors(grads)
-                    nccl.reduce(grads, root=0, streams=nccl_stream)
-                    torch.cuda.wait_stream(nccl_stream)
-                    for buf, synced in zip(bucket, _unflatten_dense_tensors(grads, bucket)):
+                    dist.all_reduce(coalesced)
+                    coalesced /= dist.get_world_size()
+                    for buf, synced in zip(grads, _unflatten_dense_tensors(coalesced, grads)):
                         buf.copy_(synced)
-                
-                self.flag=False
-        
-        
-        def hook(*unused):
-            inputs[0]._execution_engine.queue_callback(test)
-
+                        
+            
+        for param in list(self.module.parameters()):
+            def hook(*unused):
+                param._execution_engine.queue_callback(test)
+            param.register_hook(hook)
+            
         return self.module(*_cuda_inputs, **kwargs)
 
     def train(self, mode=True):

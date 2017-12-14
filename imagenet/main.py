@@ -247,9 +247,7 @@ def train(train_loader, model, criterion, optimizer, epoch):
 
         if args.fp16:
             model.zero_grad()
-            print("Start backward")
             loss.backward()
-            print("Backward finished")
             if args.loss_scale != 1:
                 for param in model.parameters():
                     param.grad.data = param.grad.data/args.loss_scale
@@ -265,7 +263,7 @@ def train(train_loader, model, criterion, optimizer, epoch):
         # measure elapsed time
         batch_time.update(time.time() - end)
         end = time.time()
-
+        
         if i % args.print_freq == 0 and i > 0:
             print('Epoch: [{0}][{1}/{2}]\t'
                   'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
