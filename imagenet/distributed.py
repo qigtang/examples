@@ -133,15 +133,20 @@ class DistributedDataParallel(Module):
 
 
     def forward(self, *inputs, **kwargs):
-        #inputs, kwargs = self.scatter(inputs, kwargs, self.device_ids)
-        _cuda_inputs = []
-        for input in inputs:
-            _cuda_inputs.append(input.cuda(self.device_ids[0]))
-        _cuda_inputs = tuple(_cuda_inputs)   
-        #self._sync_buffers()            
         self.flag = True
-        return self.module(*_cuda_inputs, **kwargs)
 
+        #inputs, kwargs = self.scatter(inputs, kwargs, self.device_ids)
+        #_cuda_inputs = []
+        #for input in inputs:
+        #    _cuda_inputs.append(input.cuda(self.device_ids[0]))
+        #_cuda_inputs = tuple(_cuda_inputs)
+        #return self.module(*_cuda_inputs, *kwargs)
+        
+        #self._sync_buffers()            
+        #inputs, kwargs = self.scatter(inputs, kwargs, self.device_ids) 
+        #return self.module(*inputs[0], **kwargs[0])
+
+        return self.module(*inputs, **kwargs)
     '''
     def train(self, mode=True):
         # Clear NCCL communicator and CUDA event cache of the default group ID,
@@ -152,6 +157,8 @@ class DistributedDataParallel(Module):
         super(DistributedDataParallel, self).train(mode)
         self.module.train(mode)
     '''
+    def scatter(self, inputs, kwargs, device_ids):
+        return scatter_kwargs(inputs, kwargs, device_ids, dim=self.dim)
 
     def _sync_buffers(self):
         buffers = list(self.module._all_buffers())

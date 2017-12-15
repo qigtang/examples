@@ -51,6 +51,8 @@ parser.add_argument('--resume', default='', type=str, metavar='PATH',
                     help='path to latest checkpoint (default: none)')
 parser.add_argument('-e', '--evaluate', dest='evaluate', action='store_true',
                     help='evaluate model on validation set')
+parser.add_argument('--prof', dest='prof', action='store_true',
+                    help='Only run 10 iterations for profiling.')
 parser.add_argument('--pretrained', dest='pretrained', action='store_true',
                     help='use pre-trained model')
 parser.add_argument('--world-size', default=1, type=int,
@@ -197,7 +199,8 @@ def main():
 
         # train for one epoch
         train(train_loader, model, criterion, optimizer, epoch)
-
+        if args.prof:
+            break
         # evaluate on validation set
         prec1 = validate(val_loader, model, criterion)
 
@@ -223,12 +226,42 @@ def train(train_loader, model, criterion, optimizer, epoch):
     # switch to train mode
     model.train()
 
+    class prefetch():
+        def __init__(self, loader):
+            self.loader = iter(loader)
+            self.stream = torch.cuda.Stream()
+            self.preload()
+            
+        def preload(self):
+            try:
+                self.next_input, self.next_target = next(self.loader)
+            except StopIteration:
+                return None, None
+            with torch.cuda.stream(self.stream):
+                self.next_input = self.next_input.cuda(async=True)
+                self.next_target = self.next_target.cuda(async=True)
+                torch.cuda.current_stream().wait_stream(self.stream)
+            
+        def next(self):
+            input = self.next_input
+            target = self.next_target
+            self.preload()
+            return input, target
+    prefetcher = prefetch(train_loader)
+        
     end = time.time()
-    for i, (input, target) in enumerate(train_loader):
+    input, target = prefetcher.next()
+
+    i = -1
+    while input is not None:
+        i += 1
+        if args.prof:
+            if i>10:
+                break
         # measure data loading time
         data_time.update(time.time() - end)
-
-        target = target.cuda(async=True)
+        
+        #target = target.cuda(async=True)
         input_var = torch.autograd.Variable(input)
         target_var = torch.autograd.Variable(target)
 
@@ -255,6 +288,7 @@ def train(train_loader, model, criterion, optimizer, epoch):
             set_grad(param_copy, list(model.parameters()))
             optimizer.step()
             copy_in_params(model, param_copy)
+            torch.cuda.synchronize()
         else:
             optimizer.zero_grad()
             loss.backward()
@@ -264,7 +298,7 @@ def train(train_loader, model, criterion, optimizer, epoch):
         batch_time.update(time.time() - end)
         end = time.time()
         
-        if i % args.print_freq == 0 and i > 0:
+        if i % args.print_freq == 0 and i > 1:
             print('Epoch: [{0}][{1}/{2}]\t'
                   'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
                   'Data {data_time.val:.3f} ({data_time.avg:.3f})\t'
@@ -273,7 +307,7 @@ def train(train_loader, model, criterion, optimizer, epoch):
                   'Prec@5 {top5.val:.3f} ({top5.avg:.3f})'.format(
                    epoch, i, len(train_loader), batch_time=batch_time,
                    data_time=data_time, loss=losses, top1=top1, top5=top5))
-
+        input, target = prefetcher.next()
 
 def validate(val_loader, model, criterion):
     batch_time = AverageMeter()
