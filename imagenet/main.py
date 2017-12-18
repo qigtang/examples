@@ -225,36 +225,14 @@ def train(train_loader, model, criterion, optimizer, epoch):
 
     # switch to train mode
     model.train()
-
-    class prefetch():
-        def __init__(self, loader):
-            self.loader = iter(loader)
-            self.stream = torch.cuda.Stream()
-            self.preload()
-            
-        def preload(self):
-            try:
-                self.next_input, self.next_target = next(self.loader)
-            except StopIteration:
-                return None, None
-            with torch.cuda.stream(self.stream):
-                self.next_input = self.next_input.cuda(async=True)
-                self.next_target = self.next_target.cuda(async=True)
-                torch.cuda.current_stream().wait_stream(self.stream)
-            
-        def next(self):
-            input = self.next_input
-            target = self.next_target
-            self.preload()
-            return input, target
-    prefetcher = prefetch(train_loader)
-        
     end = time.time()
-    input, target = prefetcher.next()
 
+    prefetcher = prefetch(train_loader)
+    input, target = prefetcher.next()
     i = -1
     while input is not None:
         i += 1
+        
         if args.prof:
             if i>10:
                 break
@@ -319,7 +297,14 @@ def validate(val_loader, model, criterion):
     model.eval()
 
     end = time.time()
-    for i, (input, target) in enumerate(val_loader):
+    #for i, (input, target) in enumerate(val_loader):
+
+    prefetcher = prefetch(val_loader)
+    input, target = prefetcher.next()
+    i = -1
+    while input is not None:
+        i += 1
+
         target = target.cuda(async=True)
         input_var = torch.autograd.Variable(input, volatile=True)
         target_var = torch.autograd.Variable(target, volatile=True)
@@ -346,6 +331,8 @@ def validate(val_loader, model, criterion):
                   'Prec@5 {top5.val:.3f} ({top5.avg:.3f})'.format(
                    i, len(val_loader), batch_time=batch_time, loss=losses,
                    top1=top1, top5=top5))
+            
+        input, target = prefetcher.next()
 
     print(' * Prec@1 {top1.avg:.3f} Prec@5 {top5.avg:.3f}'
           .format(top1=top1, top5=top5))
