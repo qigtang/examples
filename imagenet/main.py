@@ -81,15 +81,17 @@ def main():
     global args, best_prec1
     args = parser.parse_args()
 
-    args.gpu = args.rank % torch.cuda.device_count()
+    ndevices = torch.cuda.device_count()
+    args.gpu = args.rank % ndevices
     args.distributed = args.world_size > 1
+    
     if args.world_size < 0:
-        args.world_size = torch.cuda.device_count()
-        
-    if  args.world_size <= torch.cuda.device_count() and not args.non_root:
-        args.gpu = 0
         args.rank = 0
+        args.world_size = ndevices 
         args.distributed=True
+       
+    if  args.world_size <= ndevices and not args.non_root:
+        args.gpu = args.rank % ndevices
         
         argslist = list(sys.argv)
         if '--world-size' in argslist:
@@ -100,7 +102,7 @@ def main():
 
         for i in range(args.rank+1, args.rank+args.world_size):
             if '--rank' in argslist:
-                argslist[argslist.index('--rank')+1] = str(i%torch.cuda.device_count())
+                argslist[argslist.index('--rank')+1] = str(i%ndevices)
             else:
                 argslist.append('--rank')
                 argslist.append(str(i))
