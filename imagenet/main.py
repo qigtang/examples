@@ -216,6 +216,30 @@ def main():
         }, is_best)
 
 
+class data_prefetcher():
+    def __init__(self, loader):
+        self.loader = iter(loader)
+        self.stream = torch.cuda.Stream()
+        self.preload()
+        
+    def preload(self):
+        try:
+            self.next_input, self.next_target = next(self.loader)
+        except StopIteration:
+            self.next_input = None
+            self.next_target = None
+            return
+        with torch.cuda.stream(self.stream):
+            self.next_input = self.next_input.cuda(async=True)
+            self.next_target = self.next_target.cuda(async=True)
+            
+    def next(self):
+        torch.cuda.current_stream().wait_stream(self.stream)
+        input = self.next_input
+        target = self.next_target
+        self.preload()
+        return input, target
+        
 def train(train_loader, model, criterion, optimizer, epoch):
     batch_time = AverageMeter()
     data_time = AverageMeter()
@@ -227,7 +251,7 @@ def train(train_loader, model, criterion, optimizer, epoch):
     model.train()
     end = time.time()
 
-    prefetcher = prefetch(train_loader)
+    prefetcher = data_prefetcher(train_loader)
     input, target = prefetcher.next()
     i = -1
     while input is not None:
@@ -299,7 +323,7 @@ def validate(val_loader, model, criterion):
     end = time.time()
     #for i, (input, target) in enumerate(val_loader):
 
-    prefetcher = prefetch(val_loader)
+    prefetcher = data_prefetcher(val_loader)
     input, target = prefetcher.next()
     i = -1
     while input is not None:
