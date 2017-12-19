@@ -83,10 +83,6 @@ def main():
                                 world_size=args.world_size)
 
     if args.fp16:
-        #if args.distributed or args.pretrained:
-        #    print("Warning: fp16 not supported with distributed or pretrained model, ignoring fp16.")
-        # args.fp16 = False
-        #else:
         assert torch.backends.cudnn.enabled, "fp16 mode requires cudnn backend to be enabled."
 
     # create model
@@ -98,40 +94,35 @@ def main():
         model = models.__dict__[args.arch]()
 
     #todo, remove and fix indentation
-    if True:
-        if args.fp16:
-            if args.arch.startswith('alexnet') or args.arch.startswith('vgg'):
-                model.features = torch.nn.DataParallel( network_to_half(model.features) ).cuda()
-                model.classifier.cuda().half()
-            else:
-                if args.distributed:
-                    model = DDP( network_to_half(model), device_ids = [args.gpu] ).cuda()
-                else:
-                    model = torch.nn.DataParallel( network_to_half(model) ).cuda()
-
-            global param_copy
-            param_copy = [param.clone().type(torch.cuda.FloatTensor).detach() for param in model.parameters()]
-            for param in param_copy:
-                param.requires_grad = True
-
+    if args.fp16:
+        if args.arch.startswith('alexnet') or args.arch.startswith('vgg'):
+            model.features = torch.nn.DataParallel( network_to_half(model.features) ).cuda()
+            model.classifier.cuda().half()
         else:
-            if args.arch.startswith('alexnet') or args.arch.startswith('vgg'):
-                if args.distributed:
-                    model.features = DDP(model.features.cuda(), device_ids = [args.gpu])
-                else:
-                    model.features = torch.nn.DataParallel(model.features)
-                    model.cuda()
+            if args.distributed:
+                model = DDP( network_to_half(model), device_ids = [args.gpu] ).cuda()
             else:
-                if args.distributed:
-                    model = DDP(model.cuda(), device_ids = [args.gpu])
-                else:
-                    model = torch.nn.DataParallel(model).cuda()
-                param_copy = list(model.parameters())
+                model = torch.nn.DataParallel( network_to_half(model) ).cuda()
 
-    #if args.distributed:
-    #    model.cuda()
-    #    model = DDP(model, device_ids=[args.gpu])
-    #    param_copy = list(model.parameters())
+        global param_copy
+        param_copy = [param.clone().type(torch.cuda.FloatTensor).detach() for param in model.parameters()]
+        for param in param_copy:
+            param.requires_grad = True
+
+    else:
+        if args.arch.startswith('alexnet') or args.arch.startswith('vgg'):
+            if args.distributed:
+                model.features = DDP(model.features.cuda(), device_ids = [args.gpu])
+            else:
+                model.features = torch.nn.DataParallel(model.features)
+                model.cuda()
+        else:
+            if args.distributed:
+                model = DDP(model.cuda(), device_ids = [args.gpu])
+            else:
+                model = torch.nn.DataParallel(model).cuda()
+            param_copy = list(model.parameters())
+
 
     # define loss function (criterion) and optimizer
     criterion = nn.CrossEntropyLoss().cuda()
