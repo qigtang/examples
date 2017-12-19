@@ -57,9 +57,11 @@ parser.add_argument('--prof', dest='prof', action='store_true',
 parser.add_argument('--pretrained', dest='pretrained', action='store_true',
                     help='use pre-trained model')
 parser.add_argument('--world-size', default=-1, type=int,
-                    help='Number of GPUs to use processes, -1 will use all local GPUs.')
+                    help='Number of GPUs to use processes, -1 will use all local GPUs. '+
+                    'If running multi-node, must manually start a process per gpu.')
 parser.add_argument('--rank', default=0, type=int,
-                    help='Distributed process rank. Must be manually set for multi-node runs.')
+                    help='GPU start on for single-node.'+
+                    ' Rank for multi-node (must be manually set in multi-node).')
 parser.add_argument('--dist-url', default='tcp://224.66.41.62:23456', type=str,
                     help='url used to set up distributed training')
 parser.add_argument('--dist-backend', default='gloo', type=str,
@@ -68,6 +70,9 @@ parser.add_argument('--fp16', action='store_true',
                     help='Run model fp16 mode.')
 parser.add_argument('--loss-scale', type=float, default=1,
                     help='Loss scaling, positive power of 2 values can improve fp16 convergence.')
+parser.add_argument('--non_root', action='store_true',
+                    help='Internal arg only. Do not set.')
+
 
 best_prec1 = 0
 cudnn.benchmark = True
@@ -76,13 +81,14 @@ def main():
     global args, best_prec1
     args = parser.parse_args()
 
-    args.gpu = args.rank
+    args.gpu = args.rank % torch.cuda.device_count()
     args.distributed = args.world_size > 1
-    
     if args.world_size < 0:
+        args.world_size = torch.cuda.device_count()
+        
+    if  args.world_size <= torch.cuda.device_count() and not args.non_root:
         args.gpu = 0
         args.rank = 0
-        args.world_size = torch.cuda.device_count()
         args.distributed=True
         
         argslist = list(sys.argv)
@@ -92,12 +98,13 @@ def main():
             argslist.append('--world-size')
             argslist.append(str(args.world_size))
 
-        for i in range(1, torch.cuda.device_count()):
+        for i in range(args.rank+1, args.rank+args.world_size):
             if '--rank' in argslist:
-                argslist[argslist.index('--rank')+1] = str(i)
+                argslist[argslist.index('--rank')+1] = str(i%torch.cuda.device_count())
             else:
                 argslist.append('--rank')
                 argslist.append(str(i))
+            argslist.append('--non_root')
             logfile = open("GPU_"+str(i)+".log", "w")
             subprocess.Popen([str(sys.executable)]+argslist, stdout=logfile)
 
