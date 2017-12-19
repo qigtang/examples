@@ -1,8 +1,9 @@
-
 import argparse
 import os
 import shutil
 import time
+import sys
+import subprocess
 
 import torch
 from torch.autograd import Variable
@@ -55,10 +56,10 @@ parser.add_argument('--prof', dest='prof', action='store_true',
                     help='Only run 10 iterations for profiling.')
 parser.add_argument('--pretrained', dest='pretrained', action='store_true',
                     help='use pre-trained model')
-parser.add_argument('--world-size', default=1, type=int,
-                    help='number of distributed processes')
-parser.add_argument('--gpu', default=0, type=int,
-                    help='GPU to use for distributed training.')
+parser.add_argument('--world-size', default=-1, type=int,
+                    help='Number of GPUs to use processes, -1 will use all local GPUs.')
+parser.add_argument('--rank', default=0, type=int,
+                    help='Distributed process rank. Must be manually set for multi-node runs.')
 parser.add_argument('--dist-url', default='tcp://224.66.41.62:23456', type=str,
                     help='url used to set up distributed training')
 parser.add_argument('--dist-backend', default='gloo', type=str,
@@ -75,12 +76,36 @@ def main():
     global args, best_prec1
     args = parser.parse_args()
 
+    args.gpu = args.rank
     args.distributed = args.world_size > 1
+    
+    if args.world_size < 0:
+        args.gpu = 0
+        args.rank = 0
+        args.world_size = torch.cuda.device_count()
+        args.distributed=True
+        
+        argslist = list(sys.argv)
+        if '--world-size' in argslist:
+            argslist[argslist.index('--world-size')+1] = str(args.world_size)
+        else:
+            argslist.append('--world-size')
+            argslist.append(str(args.world_size))
 
-    if args.distributed:
+        for i in range(1, torch.cuda.device_count()):
+            if '--rank' in argslist:
+                argslist[argslist.index('--rank')+1] = str(i)
+            else:
+                argslist.append('--rank')
+                argslist.append(str(i))
+            logfile = open("GPU_"+str(i)+".log", "w")
+            subprocess.Popen([str(sys.executable)]+argslist, stdout=logfile)
+
+    if args.world_size > 1:
         torch.cuda.set_device(args.gpu)
         dist.init_process_group(backend=args.dist_backend, init_method=args.dist_url,
                                 world_size=args.world_size)
+        
 
     if args.fp16:
         assert torch.backends.cudnn.enabled, "fp16 mode requires cudnn backend to be enabled."
@@ -93,36 +118,29 @@ def main():
         print("=> creating model '{}'".format(args.arch))
         model = models.__dict__[args.arch]()
 
-    #todo, remove and fix indentation
-    if args.fp16:
-        if args.arch.startswith('alexnet') or args.arch.startswith('vgg'):
-            model.features = torch.nn.DataParallel( network_to_half(model.features) ).cuda()
-            model.classifier.cuda().half()
+    def wrapper(model):
+        if args.fp16:
+            model = network_to_half(model)
+        if args.distributed:
+            return DDP( model, device_ids=[args.gpu]).cuda()
         else:
-            if args.distributed:
-                model = DDP( network_to_half(model), device_ids = [args.gpu] ).cuda()
-            else:
-                model = torch.nn.DataParallel( network_to_half(model) ).cuda()
-
-        global param_copy
+            return model
+                
+    #todo, remove and fix indentation
+    if args.arch.startswith('alexnet') or args.arch.startswith('vgg'):
+        model.features = wrapper(model.features)
+        model.classifier = model.classifier.cuda()
+        if args.fp16:
+            model.classifier = model.classifier.half()
+    else:
+        model = wrapper(model)
+    global param_copy
+    if args.fp16:
         param_copy = [param.clone().type(torch.cuda.FloatTensor).detach() for param in model.parameters()]
         for param in param_copy:
             param.requires_grad = True
-
     else:
-        if args.arch.startswith('alexnet') or args.arch.startswith('vgg'):
-            if args.distributed:
-                model.features = DDP(model.features.cuda(), device_ids = [args.gpu])
-            else:
-                model.features = torch.nn.DataParallel(model.features)
-                model.cuda()
-        else:
-            if args.distributed:
-                model = DDP(model.cuda(), device_ids = [args.gpu])
-            else:
-                model = torch.nn.DataParallel(model).cuda()
-            param_copy = list(model.parameters())
-
+        param_copy = list(model.parameters())    
 
     # define loss function (criterion) and optimizer
     criterion = nn.CrossEntropyLoss().cuda()
