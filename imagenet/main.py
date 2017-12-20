@@ -52,69 +52,41 @@ parser.add_argument('--resume', default='', type=str, metavar='PATH',
                     help='path to latest checkpoint (default: none)')
 parser.add_argument('-e', '--evaluate', dest='evaluate', action='store_true',
                     help='evaluate model on validation set')
-parser.add_argument('--prof', dest='prof', action='store_true',
-                    help='Only run 10 iterations for profiling.')
 parser.add_argument('--pretrained', dest='pretrained', action='store_true',
                     help='use pre-trained model')
-parser.add_argument('--world-size', default=-1, type=int,
-                    help='Number of GPUs to use processes, -1 will use all local GPUs. '+
-                    'If running multi-node, must manually start a process per gpu.')
-parser.add_argument('--rank', default=0, type=int,
-                    help='GPU start on for single-node.'+
-                    ' Rank for multi-node (must be manually set in multi-node).')
-parser.add_argument('--dist-url', default='tcp://224.66.41.62:23456', type=str,
-                    help='url used to set up distributed training')
-parser.add_argument('--dist-backend', default='gloo', type=str,
-                    help='distributed backend')
+
 parser.add_argument('--fp16', action='store_true',
                     help='Run model fp16 mode.')
 parser.add_argument('--loss-scale', type=float, default=1,
                     help='Loss scaling, positive power of 2 values can improve fp16 convergence.')
-parser.add_argument('--non_root', action='store_true',
-                    help='Internal arg only. Do not set.')
+parser.add_argument('--prof', dest='prof', action='store_true',
+                    help='Only run 10 iterations for profiling.')
 
+parser.add_argument('--dist-url', default='tcp://224.66.41.62:23456', type=str,
+                    help='url used to set up distributed training')
+parser.add_argument('--dist-backend', default='gloo', type=str,
+                    help='distributed backend')
+
+parser.add_argument('--world-size', default=1, type=int,
+                    help='Number of GPUs to use. Can either be manually set '+
+                    'or automatically set by using \'python -m multiproc\'.')
+parser.add_argument('--rank', default=0, type=int,
+                    help='Used for multi-process training. Can either be manually set '+
+                    'or automatically set by using \'python -m multiproc\'.')
 
 best_prec1 = 0
+args = parser.parse_args()
+
 cudnn.benchmark = True
 
 def main():
-    global args, best_prec1
-    args = parser.parse_args()
 
-    ndevices = torch.cuda.device_count()
-    args.gpu = args.rank % ndevices
     args.distributed = args.world_size > 1
     
-    if args.world_size < 0:
-        args.rank = 0
-        args.world_size = ndevices 
-        args.distributed=True
-       
-    if  args.world_size <= ndevices and not args.non_root:
-        args.gpu = args.rank % ndevices
-        
-        argslist = list(sys.argv)
-        if '--world-size' in argslist:
-            argslist[argslist.index('--world-size')+1] = str(args.world_size)
-        else:
-            argslist.append('--world-size')
-            argslist.append(str(args.world_size))
-
-        for i in range(args.rank+1, args.rank+args.world_size):
-            if '--rank' in argslist:
-                argslist[argslist.index('--rank')+1] = str(i%ndevices)
-            else:
-                argslist.append('--rank')
-                argslist.append(str(i))
-            argslist.append('--non_root')
-            logfile = open("GPU_"+str(i)+".log", "w")
-            subprocess.Popen([str(sys.executable)]+argslist, stdout=logfile)
-
-    if args.world_size > 1:
-        torch.cuda.set_device(args.gpu)
+    if args.distributed:
+        torch.cuda.set_device(args.rank % torch.cuda.device_count())
         dist.init_process_group(backend=args.dist_backend, init_method=args.dist_url,
                                 world_size=args.world_size)
-        
 
     if args.fp16:
         assert torch.backends.cudnn.enabled, "fp16 mode requires cudnn backend to be enabled."
@@ -127,22 +99,11 @@ def main():
         print("=> creating model '{}'".format(args.arch))
         model = models.__dict__[args.arch]()
 
-    def wrapper(model):
-        if args.fp16:
-            model = network_to_half(model)
-        if args.distributed:
-            return DDP( model, device_ids=[args.gpu]).cuda()
-        else:
-            return model
-                
-    #todo, remove and fix indentation
-    if args.arch.startswith('alexnet') or args.arch.startswith('vgg'):
-        model.features = wrapper(model.features)
-        model.classifier = model.classifier.cuda()
-        if args.fp16:
-            model.classifier = model.classifier.half()
-    else:
-        model = wrapper(model)
+    if args.fp16:
+        model = network_to_half(model)
+    if args.distributed:
+        model = DDP(model).cuda()
+    
     global param_copy
     if args.fp16:
         param_copy = [param.clone().type(torch.cuda.FloatTensor).detach() for param in model.parameters()]
