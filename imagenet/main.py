@@ -72,13 +72,14 @@ parser.add_argument('--rank', default=0, type=int,
                     help='Used for multi-process training. Can either be manually set ' +
                     'or automatically set by using \'python -m multiproc\'.')
 
+cudnn.benchmark = True
+
 best_prec1 = 0
 args = parser.parse_args()
 
-cudnn.benchmark = True
-
-
 def main():
+    global best_prec1, args
+
     args.distributed = args.world_size > 1
 
     if args.distributed:
@@ -307,12 +308,13 @@ def validate(val_loader, model, criterion):
         i += 1
 
         target = target.cuda(async=True)
-        input_var = Variable(input, volatile=True)
-        target_var = Variable(target, volatile=True)
+        input_var = Variable(input)
+        target_var = Variable(target)
 
         # compute output
-        output = model(input_var)
-        loss = criterion(output, target_var)
+        with torch.no_grad():
+            output = model(input_var)
+            loss = criterion(output, target_var)
 
         # measure accuracy and record loss
         prec1, prec5 = accuracy(output.data, target, topk=(1, 5))

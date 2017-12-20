@@ -8,8 +8,7 @@ class DistributedDataParallel(Module):
 
     def __init__(self, module):
         super(DistributedDataParallel, self).__init__()
-        if dist._backend == dist.dist_backend.GLOO:
-            self.warn_on_half = True
+        self.warn_on_half = True if dist._backend == dist.dist_backend.GLOO else False
 
         self.module = module
 
