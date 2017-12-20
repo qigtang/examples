@@ -8,7 +8,9 @@ class DistributedDataParallel(Module):
 
     def __init__(self, module):
         super(DistributedDataParallel, self).__init__()
-
+        if dist._backend == dist.dist_backend.GLOO:
+            self.warn_on_half = True
+                
         self.module = module
 
         for p in self.module.state_dict().values():
@@ -24,6 +26,12 @@ class DistributedDataParallel(Module):
                         if tp not in buckets:
                             buckets[tp]=[]
                         buckets[tp].append(param)
+                if self.warn_on_half:
+                    if torch.cuda.HalfTensor in buckets:
+                        print("WARNING: gloo dist backend for half parameters may be extremely slow."+
+                              " It is recommended to use the NCCL backend in this case.")
+                        self.warn_on_half = False
+                        
                 for tp in buckets:
                     bucket = buckets[tp]
                     grads = [param.grad.data for param in bucket]
