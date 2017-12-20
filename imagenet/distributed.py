@@ -1,8 +1,8 @@
 import torch
-from torch.autograd import Variable
 from torch._utils import _flatten_dense_tensors, _unflatten_dense_tensors
 import torch.distributed as dist
 from torch.nn.modules import Module
+
 
 class DistributedDataParallel(Module):
 
@@ -10,28 +10,28 @@ class DistributedDataParallel(Module):
         super(DistributedDataParallel, self).__init__()
         if dist._backend == dist.dist_backend.GLOO:
             self.warn_on_half = True
-                
+
         self.module = module
 
         for p in self.module.state_dict().values():
             dist.broadcast(p, 0)
-            
+
         def allreduce_params():
             if(self.needs_reduction):
-                self.needs_reduction=False
+                self.needs_reduction = False
                 buckets = {}
                 for param in self.module.parameters():
                     if param.requires_grad:
                         tp = type(param.data)
                         if tp not in buckets:
-                            buckets[tp]=[]
+                            buckets[tp] = []
                         buckets[tp].append(param)
                 if self.warn_on_half:
                     if torch.cuda.HalfTensor in buckets:
-                        print("WARNING: gloo dist backend for half parameters may be extremely slow."+
+                        print("WARNING: gloo dist backend for half parameters may be extremely slow." +
                               " It is recommended to use the NCCL backend in this case.")
                         self.warn_on_half = False
-                        
+
                 for tp in buckets:
                     bucket = buckets[tp]
                     grads = [param.grad.data for param in bucket]
@@ -40,19 +40,16 @@ class DistributedDataParallel(Module):
                     coalesced /= dist.get_world_size()
                     for buf, synced in zip(grads, _unflatten_dense_tensors(coalesced, grads)):
                         buf.copy_(synced)
-                        
-            
+
         for param in list(self.module.parameters()):
             def allreduce_hook(*unused):
                 param._execution_engine.queue_callback(allreduce_params)
             param.register_hook(allreduce_hook)
 
-
     def forward(self, *inputs, **kwargs):
         self.needs_reduction = True
         return self.module(*inputs, **kwargs)
 
-    
     '''
     def _sync_buffers(self):
         buffers = list(self.module._all_buffers())

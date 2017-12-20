@@ -2,8 +2,6 @@ import argparse
 import os
 import shutil
 import time
-import sys
-import subprocess
 
 import torch
 from torch.autograd import Variable
@@ -18,7 +16,7 @@ import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 import torchvision.models as models
 from distributed import DistributedDataParallel as DDP
-from fp16util import *
+from fp16util import network_to_half, set_grad, copy_in_params
 
 model_names = sorted(name for name in models.__dict__
                      if name.islower() and not name.startswith("__")
@@ -68,10 +66,10 @@ parser.add_argument('--dist-backend', default='gloo', type=str,
                     help='distributed backend')
 
 parser.add_argument('--world-size', default=1, type=int,
-                    help='Number of GPUs to use. Can either be manually set '+
+                    help='Number of GPUs to use. Can either be manually set ' +
                     'or automatically set by using \'python -m multiproc\'.')
 parser.add_argument('--rank', default=0, type=int,
-                    help='Used for multi-process training. Can either be manually set '+
+                    help='Used for multi-process training. Can either be manually set ' +
                     'or automatically set by using \'python -m multiproc\'.')
 
 best_prec1 = 0
@@ -79,10 +77,10 @@ args = parser.parse_args()
 
 cudnn.benchmark = True
 
-def main():
 
+def main():
     args.distributed = args.world_size > 1
-    
+
     if args.distributed:
         torch.cuda.set_device(args.rank % torch.cuda.device_count())
         dist.init_process_group(backend=args.dist_backend, init_method=args.dist_url,
@@ -103,14 +101,14 @@ def main():
         model = network_to_half(model)
     if args.distributed:
         model = DDP(model).cuda()
-    
+
     global param_copy
     if args.fp16:
         param_copy = [param.clone().type(torch.cuda.FloatTensor).detach() for param in model.parameters()]
         for param in param_copy:
             param.requires_grad = True
     else:
-        param_copy = list(model.parameters())    
+        param_copy = list(model.parameters())
 
     # define loss function (criterion) and optimizer
     criterion = nn.CrossEntropyLoss().cuda()
@@ -200,7 +198,7 @@ class data_prefetcher():
         self.loader = iter(loader)
         self.stream = torch.cuda.Stream()
         self.preload()
-        
+
     def preload(self):
         try:
             self.next_input, self.next_target = next(self.loader)
@@ -211,14 +209,15 @@ class data_prefetcher():
         with torch.cuda.stream(self.stream):
             self.next_input = self.next_input.cuda(async=True)
             self.next_target = self.next_target.cuda(async=True)
-            
+
     def next(self):
         torch.cuda.current_stream().wait_stream(self.stream)
         input = self.next_input
         target = self.next_target
         self.preload()
         return input, target
-        
+
+
 def train(train_loader, model, criterion, optimizer, epoch):
     batch_time = AverageMeter()
     data_time = AverageMeter()
@@ -235,16 +234,15 @@ def train(train_loader, model, criterion, optimizer, epoch):
     i = -1
     while input is not None:
         i += 1
-        
+
         if args.prof:
-            if i>10:
+            if i > 10:
                 break
         # measure data loading time
         data_time.update(time.time() - end)
-        
-        #target = target.cuda(async=True)
-        input_var = torch.autograd.Variable(input)
-        target_var = torch.autograd.Variable(target)
+
+        input_var = Variable(input)
+        target_var = Variable(target)
 
         # compute output
         output = model(input_var)
@@ -278,7 +276,7 @@ def train(train_loader, model, criterion, optimizer, epoch):
         # measure elapsed time
         batch_time.update(time.time() - end)
         end = time.time()
-        
+
         if i % args.print_freq == 0 and i > 1:
             print('Epoch: [{0}][{1}/{2}]\t'
                   'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
@@ -290,6 +288,7 @@ def train(train_loader, model, criterion, optimizer, epoch):
                    data_time=data_time, loss=losses, top1=top1, top5=top5))
         input, target = prefetcher.next()
 
+
 def validate(val_loader, model, criterion):
     batch_time = AverageMeter()
     losses = AverageMeter()
@@ -300,7 +299,6 @@ def validate(val_loader, model, criterion):
     model.eval()
 
     end = time.time()
-    #for i, (input, target) in enumerate(val_loader):
 
     prefetcher = data_prefetcher(val_loader)
     input, target = prefetcher.next()
@@ -309,8 +307,8 @@ def validate(val_loader, model, criterion):
         i += 1
 
         target = target.cuda(async=True)
-        input_var = torch.autograd.Variable(input, volatile=True)
-        target_var = torch.autograd.Variable(target, volatile=True)
+        input_var = Variable(input, volatile=True)
+        target_var = Variable(target, volatile=True)
 
         # compute output
         output = model(input_var)
@@ -334,7 +332,7 @@ def validate(val_loader, model, criterion):
                   'Prec@5 {top5.val:.3f} ({top5.avg:.3f})'.format(
                    i, len(val_loader), batch_time=batch_time, loss=losses,
                    top1=top1, top5=top5))
-            
+
         input, target = prefetcher.next()
 
     print(' * Prec@1 {top1.avg:.3f} Prec@5 {top5.avg:.3f}'
