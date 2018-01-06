@@ -101,7 +101,7 @@ def main():
     if args.fp16:
         model = network_to_half(model)
     if args.distributed:
-        model = DDP(model).cuda()
+        model = DDP(model.cuda())
 
     global param_copy
     if args.fp16:

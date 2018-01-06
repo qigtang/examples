@@ -72,7 +72,10 @@ if args.distributed:
     assert args.cuda, "Distributed mode requires running with CUDA."
 
 if args.distributed:
-    '''Set cuda device so everything is done on the right GPU'''
+    '''
+    Set cuda device so everything is done on the right GPU.
+    THIS MUST BE DONE AS SOON AS POSSIBLE.
+    '''
     torch.cuda.set_device(args.rank % torch.cuda.device_count())
 
     '''Initialize distributed communication'''
@@ -142,7 +145,11 @@ if args.cuda:
     model.cuda()
 
 #=====START: ADDED FOR DISTRIBUTED======
-'''Wrap model in our version of DistributedDataParallel'''
+'''
+Wrap model in our version of DistributedDataParallel.
+This must be done AFTER the model is converted to cuda.
+'''
+
 if args.distributed:
     model = DDP(model)
 #=====END:   ADDED FOR DISTRIBUTED======

@@ -2,9 +2,16 @@
 
 This implements training of popular model architectures, such as ResNet, AlexNet, and VGG on the ImageNet dataset.
 
+This version has been modified from using the included DataParallel and DistributedDataParallel modules included in pytorch to a custom DistributedDataParallel included in distributed.py.
+For description of how this works please see the distributed example included in this repo.
+
+To run multi-gpu on a single node use the command
+```python -m multiproc main.py ...```
+adding any normal arguments.
+
 ## Requirements
 
-- Install PyTorch ([pytorch.org](http://pytorch.org))
+- Install PyTorch from source, master branch of ([pytorch on github](https://www.github.com/pytorch/pytorch)
 - `pip install -r requirements.txt`
 - Download the ImageNet dataset and move validation images to labeled subfolders
     - To do this, you can use the following script: https://raw.githubusercontent.com/soumith/imagenetloader.torch/master/valprep.sh
