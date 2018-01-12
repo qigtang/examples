@@ -98,10 +98,11 @@ def main():
         print("=> creating model '{}'".format(args.arch))
         model = models.__dict__[args.arch]()
 
+    model = model.cuda()
     if args.fp16:
         model = network_to_half(model)
     if args.distributed:
-        model = DDP(model.cuda())
+        model = DDP(model)
 
     global param_copy
     if args.fp16:

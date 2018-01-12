@@ -40,4 +40,4 @@ def BN_convert_float(module):
 
 
 def network_to_half(network):
-    return nn.Sequential(tofp16(), BN_convert_float(network.cuda().half()))
+    return nn.Sequential(tofp16(), BN_convert_float(network.half()))
