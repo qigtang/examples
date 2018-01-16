@@ -13,7 +13,8 @@ class DistributedDataParallel(Module):
         self.module = module
 
         for p in self.module.state_dict().values():
-            dist.broadcast(p, 0)
+            if torch.is_tensor(p):
+                dist.broadcast(p, 0)
 
         def allreduce_params():
             if(self.needs_reduction):
