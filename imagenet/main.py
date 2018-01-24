@@ -86,6 +86,7 @@ def main():
         torch.cuda.set_device(args.rank % torch.cuda.device_count())
         dist.init_process_group(backend=args.dist_backend, init_method=args.dist_url,
                                 world_size=args.world_size)
+        args.batch_size = int(args.batch_size / args.world_size)
 
     if args.fp16:
         assert torch.backends.cudnn.enabled, "fp16 mode requires cudnn backend to be enabled."
@@ -184,15 +185,16 @@ def main():
         prec1 = validate(val_loader, model, criterion)
 
         # remember best prec@1 and save checkpoint
-        is_best = prec1 > best_prec1
-        best_prec1 = max(prec1, best_prec1)
-        save_checkpoint({
-            'epoch': epoch + 1,
-            'arch': args.arch,
-            'state_dict': model.state_dict(),
-            'best_prec1': best_prec1,
-            'optimizer' : optimizer.state_dict(),
-        }, is_best)
+        if args.rank == 0:
+            is_best = prec1 > best_prec1
+            best_prec1 = max(prec1, best_prec1)
+            save_checkpoint({
+                'epoch': epoch + 1,
+                'arch': args.arch,
+                'state_dict': model.state_dict(),
+                'best_prec1': best_prec1,
+                'optimizer' : optimizer.state_dict(),
+            }, is_best)
 
 
 class data_prefetcher():
@@ -250,11 +252,17 @@ def train(train_loader, model, criterion, optimizer, epoch):
         output = model(input_var)
         loss = criterion(output, target_var)
 
+        reduced_loss = reduce_tensor(loss.data)
+
         # measure accuracy and record loss
         prec1, prec5 = accuracy(output.data, target, topk=(1, 5))
-        losses.update(loss.data[0], input.size(0))
-        top1.update(prec1[0], input.size(0))
-        top5.update(prec5[0], input.size(0))
+
+        reduced_prec1 = reduce_tensor(prec1)
+        reduced_prec5 = reduce_tensor(prec5)
+
+        losses.update(reduced_loss[0], input.size(0))
+        top1.update(reduced_prec1[0], input.size(0))
+        top5.update(reduced_prec5[0], input.size(0))
 
         loss = loss*args.loss_scale
         # compute gradient and do SGD step
@@ -279,7 +287,7 @@ def train(train_loader, model, criterion, optimizer, epoch):
         batch_time.update(time.time() - end)
         end = time.time()
 
-        if i % args.print_freq == 0 and i > 1:
+        if args.rank == 0 and i % args.print_freq == 0 and i > 1:
             print('Epoch: [{0}][{1}/{2}]\t'
                   'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
                   'Data {data_time.val:.3f} ({data_time.avg:.3f})\t'
@@ -317,9 +325,15 @@ def validate(val_loader, model, criterion):
             output = model(input_var)
             loss = criterion(output, target_var)
 
+        reduced_loss = reduce_tensor(loss.data)
+
         # measure accuracy and record loss
         prec1, prec5 = accuracy(output.data, target, topk=(1, 5))
-        losses.update(loss.data[0], input.size(0))
+
+        reduced_prec1 = reduce_tensor(prec1)
+        reduced_prec5 = reduce_tensor(prec5)
+
+        losses.update(reduced_loss[0], input.size(0))
         top1.update(prec1[0], input.size(0))
         top5.update(prec5[0], input.size(0))
 
@@ -327,7 +341,7 @@ def validate(val_loader, model, criterion):
         batch_time.update(time.time() - end)
         end = time.time()
 
-        if i % args.print_freq == 0:
+        if args.rank == 0 and i % args.print_freq == 0:
             print('Test: [{0}/{1}]\t'
                   'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
                   'Loss {loss.val:.4f} ({loss.avg:.4f})\t'
@@ -390,6 +404,12 @@ def accuracy(output, target, topk=(1,)):
         res.append(correct_k.mul_(100.0 / batch_size))
     return res
 
+
+def reduce_tensor(tensor):
+    rt = tensor.clone()
+    dist.all_reduce(rt, op=dist.reduce_op.SUM)
+    rt /= args.world_size
+    return rt
 
 if __name__ == '__main__':
     main()
