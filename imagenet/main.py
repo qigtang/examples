@@ -62,7 +62,7 @@ parser.add_argument('--prof', dest='prof', action='store_true',
 
 parser.add_argument('--dist-url', default='tcp://224.66.41.62:23456', type=str,
                     help='url used to set up distributed training')
-parser.add_argument('--dist-backend', default='gloo', type=str,
+parser.add_argument('--dist-backend', default='nccl', type=str,
                     help='distributed backend')
 
 parser.add_argument('--world-size', default=1, type=int,
@@ -251,17 +251,19 @@ def train(train_loader, model, criterion, optimizer, epoch):
         output = model(input_var)
         loss = criterion(output, target_var)
 
-        reduced_loss = reduce_tensor(loss.data)
-
         # measure accuracy and record loss
         prec1, prec5 = accuracy(output.data, target, topk=(1, 5))
 
-        reduced_prec1 = reduce_tensor(prec1)
-        reduced_prec5 = reduce_tensor(prec5)
+        if args.distributed:
+            reduced_loss = reduce_tensor(loss.data)
+            prec1 = reduce_tensor(prec1)
+            prec1 = reduce_tensor(prec5)
+        else:
+            reduced_loss = loss.data
 
         losses.update(reduced_loss[0], input.size(0))
-        top1.update(reduced_prec1[0], input.size(0))
-        top5.update(reduced_prec5[0], input.size(0))
+        top1.update(prec1[0], input.size(0))
+        top5.update(prec5[0], input.size(0))
 
         loss = loss*args.loss_scale
         # compute gradient and do SGD step
