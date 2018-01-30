@@ -86,7 +86,6 @@ def main():
         torch.cuda.set_device(args.rank % torch.cuda.device_count())
         dist.init_process_group(backend=args.dist_backend, init_method=args.dist_url,
                                 world_size=args.world_size)
-        args.batch_size = int(args.batch_size / args.world_size)
 
     if args.fp16:
         assert torch.backends.cudnn.enabled, "fp16 mode requires cudnn backend to be enabled."
@@ -285,7 +284,9 @@ def train(train_loader, model, criterion, optimizer, epoch):
 
         # measure elapsed time
         batch_time.update(time.time() - end)
+
         end = time.time()
+        input, target = prefetcher.next()
 
         if args.rank == 0 and i % args.print_freq == 0 and i > 1:
             print('Epoch: [{0}][{1}/{2}]\t'
@@ -296,7 +297,6 @@ def train(train_loader, model, criterion, optimizer, epoch):
                   'Prec@5 {top5.val:.3f} ({top5.avg:.3f})'.format(
                    epoch, i, len(train_loader), batch_time=batch_time,
                    data_time=data_time, loss=losses, top1=top1, top5=top5))
-        input, target = prefetcher.next()
 
 
 def validate(val_loader, model, criterion):
