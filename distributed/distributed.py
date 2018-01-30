@@ -21,7 +21,10 @@ class DistributedDataParallel(Module):
         self.module = module
 
         for p in self.module.state_dict().values():
-            assert p.is_cuda, "This version of distributed data parallel requires the model parameters to be on GPU."
+            if not torch.is_tensor(p):
+                continue
+            if dist._backend == dist.dist_backend.NCCL:
+                assert p.is_cuda, "NCCL backend only supports model parameters to be on GPU."
             dist.broadcast(p, 0)
 
         def allreduce_params():
@@ -52,7 +55,8 @@ class DistributedDataParallel(Module):
         for param in list(self.module.parameters()):
             def allreduce_hook(*unused):
                 param._execution_engine.queue_callback(allreduce_params)
-            param.register_hook(allreduce_hook)
+            if param.requires_grad:
+                param.register_hook(allreduce_hook)
 
     def forward(self, *inputs, **kwargs):
         self.needs_reduction = True

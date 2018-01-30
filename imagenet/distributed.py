@@ -3,7 +3,15 @@ from torch._utils import _flatten_dense_tensors, _unflatten_dense_tensors
 import torch.distributed as dist
 from torch.nn.modules import Module
 
+'''
+This version of DistributedDataParallel is designed to be used in conjunction with the multiproc.py
+launcher included with this example. It assumes that your run is using multiprocess with 1
+GPU/process, that the model is on the correct device, and that torch.set_device has been
+used to set the device.
 
+Parameters are broadcasted to the other processes on initialization of DistributedDataParallel,
+and will be allreduced at the finish of the backward pass.
+'''
 class DistributedDataParallel(Module):
 
     def __init__(self, module):
@@ -13,8 +21,11 @@ class DistributedDataParallel(Module):
         self.module = module
 
         for p in self.module.state_dict().values():
-            if torch.is_tensor(p):
-                dist.broadcast(p, 0)
+            if not torch.is_tensor(p):
+                continue
+            if dist._backend == dist.dist_backend.NCCL:
+                assert p.is_cuda, "NCCL backend only supports model parameters to be on GPU."
+            dist.broadcast(p, 0)
 
         def allreduce_params():
             if(self.needs_reduction):
@@ -44,7 +55,8 @@ class DistributedDataParallel(Module):
         for param in list(self.module.parameters()):
             def allreduce_hook(*unused):
                 param._execution_engine.queue_callback(allreduce_params)
-            param.register_hook(allreduce_hook)
+            if param.requires_grad:
+                param.register_hook(allreduce_hook)
 
     def forward(self, *inputs, **kwargs):
         self.needs_reduction = True
@@ -59,7 +71,7 @@ class DistributedDataParallel(Module):
             dist.broadcast(flat_buffers, 0)
             for buf, synced in zip(buffers, _unflatten_dense_tensors(flat_buffers, buffers)):
                 buf.copy_(synced)
-    def train(self, mode=True):
+     def train(self, mode=True):
         # Clear NCCL communicator and CUDA event cache of the default group ID,
         # These cache will be recreated at the later call. This is currently a
         # work-around for a potential NCCL deadlock.
