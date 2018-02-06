@@ -76,14 +76,17 @@ cudnn.benchmark = True
 
 best_prec1 = 0
 args = parser.parse_args()
-
 def main():
     global best_prec1, args
 
     args.distributed = args.world_size > 1
+    args.gpu = 0
+    if args.distributed:
+        args.gpu = args.rank % torch.cuda.device_count()
+        
 
     if args.distributed:
-        torch.cuda.set_device(args.rank % torch.cuda.device_count())
+        torch.cuda.set_device(args.gpu)
         dist.init_process_group(backend=args.dist_backend, init_method=args.dist_url,
                                 world_size=args.world_size)
 
@@ -123,7 +126,7 @@ def main():
     if args.resume:
         if os.path.isfile(args.resume):
             print("=> loading checkpoint '{}'".format(args.resume))
-            checkpoint = torch.load(args.resume)
+            checkpoint = torch.load(args.resume, map_location = lambda storage, loc: storage.cuda(args.gpu))
             args.start_epoch = checkpoint['epoch']
             best_prec1 = checkpoint['best_prec1']
             model.load_state_dict(checkpoint['state_dict'])
