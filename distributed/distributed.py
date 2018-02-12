@@ -16,15 +16,17 @@ class DistributedDataParallel(Module):
 
     def __init__(self, module):
         super(DistributedDataParallel, self).__init__()
-        self.warn_on_half = True if dist._backend == dist.dist_backend.GLOO else False
+        #fallback for PyTorch 0.3
+        if not hasattr(dist, '_backend'):
+            self.warn_on_half = True
+        else:
+            self.warn_on_half = True if dist._backend == dist.dist_backend.GLOO else False
 
         self.module = module
 
         for p in self.module.state_dict().values():
             if not torch.is_tensor(p):
                 continue
-            if dist._backend == dist.dist_backend.NCCL:
-                assert p.is_cuda, "NCCL backend only supports model parameters to be on GPU."
             dist.broadcast(p, 0)
 
         def allreduce_params():
@@ -40,7 +42,8 @@ class DistributedDataParallel(Module):
                 if self.warn_on_half:
                     if torch.cuda.HalfTensor in buckets:
                         print("WARNING: gloo dist backend for half parameters may be extremely slow." +
-                              " It is recommended to use the NCCL backend in this case.")
+                              " It is recommended to use the NCCL backend in this case. This currently requires" +
+                              "PyTorch built from top of tree master.")
                         self.warn_on_half = False
 
                 for tp in buckets:

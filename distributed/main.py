@@ -79,7 +79,7 @@ if args.distributed:
     torch.cuda.set_device(args.rank % torch.cuda.device_count())
 
     '''Initialize distributed communication'''
-    dist.init_process_group(backend=args.dist_backend, init_method=args.dist_url,
+    dist.init_process_group(args.dist_backend, init_method=args.dist_url,
                             world_size=args.world_size)
 
 #=====END:   ADDED FOR DISTRIBUTED======
