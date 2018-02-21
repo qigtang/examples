@@ -274,11 +274,12 @@ def train(train_loader, model, criterion, optimizer, epoch):
         if args.fp16:
             model.zero_grad()
             loss.backward()
+            set_grad(param_copy, list(model.parameters()))
+
             if args.loss_scale != 1:
-                for param in model.parameters():
+                for param in param_copy:
                     param.grad.data = param.grad.data/args.loss_scale
 
-            set_grad(param_copy, list(model.parameters()))
             optimizer.step()
             copy_in_params(model, param_copy)
             torch.cuda.synchronize()
