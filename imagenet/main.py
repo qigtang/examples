@@ -260,7 +260,7 @@ def train(train_loader, model, criterion, optimizer, epoch):
         if args.distributed:
             reduced_loss = reduce_tensor(loss.data)
             prec1 = reduce_tensor(prec1)
-            prec1 = reduce_tensor(prec5)
+            prec5 = reduce_tensor(prec5)
         else:
             reduced_loss = loss.data
 

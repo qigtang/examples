@@ -33,7 +33,7 @@ class DistributedDataParallel(Module):
                 buckets = {}
                 for param in self.module.parameters():
                     if param.requires_grad and param.grad is not None:
-                        tp = type(param.data)
+                        tp = param.data.type()
                         if tp not in buckets:
                             buckets[tp] = []
                         buckets[tp].append(param)
