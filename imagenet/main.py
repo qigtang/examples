@@ -198,6 +198,12 @@ def main():
                 'optimizer' : optimizer.state_dict(),
             }, is_best)
 
+# item() is a recent addition, so this helps with backward compatibility.
+def to_python_float(t):
+    if hasattr(t, 'item'):
+        return t.item()
+    else:
+        return t[0]
 
 class data_prefetcher():
     def __init__(self, loader):
@@ -264,9 +270,9 @@ def train(train_loader, model, criterion, optimizer, epoch):
         else:
             reduced_loss = loss.data
 
-        losses.update(reduced_loss[0], input.size(0))
-        top1.update(prec1[0], input.size(0))
-        top5.update(prec5[0], input.size(0))
+        losses.update(to_python_float(reduced_loss), input.size(0))
+        top1.update(to_python_float(prec1), input.size(0))
+        top5.update(to_python_float(prec5), input.size(0))
 
         loss = loss*args.loss_scale
         # compute gradient and do SGD step
@@ -339,9 +345,9 @@ def validate(val_loader, model, criterion):
         reduced_prec1 = reduce_tensor(prec1)
         reduced_prec5 = reduce_tensor(prec5)
 
-        losses.update(reduced_loss[0], input.size(0))
-        top1.update(prec1[0], input.size(0))
-        top5.update(prec5[0], input.size(0))
+        losses.update(to_python_float(reduced_loss), input.size(0))
+        top1.update(to_python_float(prec1), input.size(0))
+        top5.update(to_python_float(prec5), input.size(0))
 
         # measure elapsed time
         batch_time.update(time.time() - end)
