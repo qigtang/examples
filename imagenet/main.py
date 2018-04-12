@@ -18,6 +18,8 @@ import torchvision.models as models
 from distributed import DistributedDataParallel as DDP
 from fp16util import network_to_half, set_grad, copy_in_params
 
+import numpy as np
+
 model_names = sorted(name for name in models.__dict__
                      if name.islower() and not name.startswith("__")
                      and callable(models.__dict__[name]))
@@ -73,6 +75,9 @@ parser.add_argument('--rank', default=0, type=int,
                     'or automatically set by using \'python -m multiproc\'.')
 
 cudnn.benchmark = True
+
+main_stream = torch.cuda.Stream()
+torch.cuda.stream(main_stream)
 
 best_prec1 = 0
 args = parser.parse_args()
