@@ -90,7 +90,7 @@ class DistributedDataParallel(Module):
                     flat_dist_call(ready, dist.all_reduce)
                     
             torch.cuda.current_stream().wait_stream(self.reduction_stream)
-            torch.cuda.synchronize()
+
         for param_i, param in enumerate(list(self.module.parameters())):
             def wrapper(param_i):
                 
@@ -110,7 +110,7 @@ class DistributedDataParallel(Module):
 
 
     def comm_ready_buckets(self):
-        bucket_size = 10*1000*1000*10
+        bucket_size = 10*1000*1000
         ready = []
         counter = 0
 
@@ -137,9 +137,11 @@ class DistributedDataParallel(Module):
         if cumm_size < bucket_size:
             return
 
-        orig_stream = torch.cuda.current_stream()
+        evt = torch.cuda.Event()
+        evt.record(torch.cuda.current_stream())
+        evt.wait(stream=self.reduction_stream)
+        
         with torch.cuda.stream(self.reduction_stream):
-            self.reduction_stream.wait_stream(orig_stream)
             flat_dist_call(grads, dist.all_reduce)
 
         for ind in ready:
