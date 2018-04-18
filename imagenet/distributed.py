@@ -42,10 +42,12 @@ def flat_dist_call(tensors, call, extra_args=None):
             
 class DistributedDataParallel(Module):
 
-    def __init__(self, module):
+    def __init__(self, module, message_size=10000000):
         super(DistributedDataParallel, self).__init__()
         self.warn_on_half = True if dist._backend == dist.dist_backend.GLOO else False
-
+        
+        self.message_size = message_size
+        
         self.reduction_stream = torch.cuda.Stream()
         
         self.module = module
@@ -71,6 +73,10 @@ class DistributedDataParallel(Module):
                 return
             grads = [param.grad.data for param in self.module.parameters() if param.grad is not None]
             flat_dist_call(grads, dist.all_reduce)
+            t_record = torch.cuda.IntTensor(self.record)
+            dist.broadcast(t_record, 0)
+            self.record = [int(entry) for entry in t_record]
+
 
         def flush_buckets():
             if not self.needs_reduction:
@@ -110,7 +116,7 @@ class DistributedDataParallel(Module):
 
 
     def comm_ready_buckets(self):
-        bucket_size = 10*1000*1000
+
         ready = []
         counter = 0
 
@@ -134,7 +140,7 @@ class DistributedDataParallel(Module):
         for ten in grads:
             cumm_size += ten.numel()
 
-        if cumm_size < bucket_size:
+        if cumm_size < self.message_size:
             return
 
         evt = torch.cuda.Event()
@@ -159,22 +165,3 @@ class DistributedDataParallel(Module):
 
         self.needs_reduction = True
         return self.module(*inputs, **kwargs)
-
-    '''
-    def _sync_buffers(self):
-        buffers = list(self.module._all_buffers())
-        if len(buffers) > 0:
-            # cross-node buffer sync
-            flat_buffers = _flatten_dense_tensors(buffers)
-            dist.broadcast(flat_buffers, 0)
-            for buf, synced in zip(buffers, _unflatten_dense_tensors(flat_buffers, buffers)):
-                buf.copy_(synced)
-     def train(self, mode=True):
-        # Clear NCCL communicator and CUDA event cache of the default group ID,
-        # These cache will be recreated at the later call. This is currently a
-        # work-around for a potential NCCL deadlock.
-        if dist._backend == dist.dist_backend.NCCL:
-            dist._clear_group_cache()
-        super(DistributedDataParallel, self).train(mode)
-        self.module.train(mode)
-    '''
