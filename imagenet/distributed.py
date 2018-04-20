@@ -48,6 +48,9 @@ class DistributedDataParallel(Module):
         
         self.message_size = message_size
         
+        #reference to last iterations parameters to see if anything has changed
+        self.param_refs = []
+        
         self.reduction_stream = torch.cuda.Stream()
         
         self.module = module
@@ -60,8 +63,7 @@ class DistributedDataParallel(Module):
         self.record = []
         self.create_hooks()
 
-        param_list = [param for param in self.module.state_dict().values() if torch.is_tensor(param)]
-        flat_dist_call([param.data for param in self.param_list], dist.broadcast, (0,) )
+        flat_dist_call([param.data for param in self.module.parameters()], dist.broadcast, (0,) )
         
     def create_hooks(self):
         #all reduce gradient hook
@@ -82,6 +84,7 @@ class DistributedDataParallel(Module):
             if not self.needs_reduction:
                 return
             self.needs_reduction = False
+            
             ready = []
             for i in range(len(self.param_state)):
                 if self.param_state[i] == 1:
@@ -136,32 +139,45 @@ class DistributedDataParallel(Module):
             if self.param_list[param_ind].grad is not None:
                 grads.append(self.param_list[param_ind].grad.data)
 
-        cumm_size = 0
-        for ten in grads:
-            cumm_size += ten.numel()
+        bucket = []
+        bucket_inds = []
+        while grads:
+            bucket.append(grads.pop(0))
+            bucket_inds.append(ready.pop(0))
+            
+            cumm_size = 0
+            for ten in bucket:
+                cumm_size += ten.numel()
 
-        if cumm_size < self.message_size:
-            return
+            if cumm_size < self.message_size:
+                continue
 
-        evt = torch.cuda.Event()
-        evt.record(torch.cuda.current_stream())
-        evt.wait(stream=self.reduction_stream)
+            evt = torch.cuda.Event()
+            evt.record(torch.cuda.current_stream())
+            evt.wait(stream=self.reduction_stream)
         
-        with torch.cuda.stream(self.reduction_stream):
-            flat_dist_call(grads, dist.all_reduce)
+            with torch.cuda.stream(self.reduction_stream):
+                flat_dist_call(bucket, dist.all_reduce)
 
-        for ind in ready:
-            self.param_state[ind] = 2
+            for ind in bucket_inds:
+                self.param_state[ind] = 2
         
     def forward(self, *inputs, **kwargs):
 
         param_list = [param for param in list(self.module.parameters()) if param.requires_grad]
 
-        if not self.record or len(self.record) != len(param_list):
-            self.record = []
-            self.needs_refresh=True
-        else:
-            self.param_state = [0 for i in range(len(param_list))]
+        
 
+        self.needs_refresh = True if not self.param_refs else any(
+            [param1 is not param2 for param1, param2 in zip(param_list, self.param_refs)]
+        )
+                
+        if  self.needs_refresh:
+            self.record = []
+
+            
+        self.param_state = [0 for i in range(len(param_list))]
+        self.param_refs = param_list
         self.needs_reduction = True
+        
         return self.module(*inputs, **kwargs)
