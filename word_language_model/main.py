@@ -107,7 +107,7 @@ model = model.RNNModel(args.model, ntokens, args.emsize, args.nhid, args.nlayers
 
 if args.cuda and args.fp16:
     model.type(torch.cuda.HalfTensor)
-    param_copy = params_to_32(clone_params(model))
+    model_params, master_params = prep_param_lists(model)
 elif args.cuda:
     model.cuda()
 criterion = nn.CrossEntropyLoss()
@@ -119,7 +119,7 @@ criterion = nn.CrossEntropyLoss()
 
 def repackage_hidden(h):
     """Wraps hidden states in new Variables, to detach them from their history."""
-    if type(h) == Variable:
+    if torch.is_tensor(h):
         return Variable(h.data)
     else:
         return tuple(repackage_hidden(v) for v in h)
@@ -180,10 +180,10 @@ def train():
         torch.nn.utils.clip_grad_norm(model.parameters(), args.clip)
 
         if args.fp16 and args.cuda:
-            grad = params_to_32(clone_grads(model))
-            for i, _ in enumerate(param_copy):
-                param_copy[i] = param_copy[i] - grad[i] * (lr/args.loss_scale)
-            copy_in_params(model, params_to_16(param_copy))
+            model_grads_to_master_grads(model_params, master_params)
+            for param in master_params:
+                param.data = param.data - param.grad.data * (lr/args.loss_scale)
+            master_params_to_model_params(model_params, master_params)
         else:
             for p in model.parameters():
                 p.data.add_(-lr/args.loss_scale, p.grad.data)
