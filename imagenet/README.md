@@ -2,7 +2,7 @@
 
 This implements training of popular model architectures, such as ResNet, AlexNet, and VGG on the ImageNet dataset.
 
-This version has been modified from the DistributedDataParallel module in apex instead of the one in upstream PyTorch. Please install apex from https://www.github.com/nvidia/apex. 
+This version has been modified from the DistributedDataParallel module in APEx instead of the one in upstream PyTorch. Please install APEx from https://www.github.com/nvidia/apex. 
 For description of how this works please see the distributed example included in this repo.
 
 To run multi-gpu on a single node use the command
@@ -11,6 +11,7 @@ adding any normal arguments.
 
 ## Requirements
 
+- APEx which can be installed from https://www.github.com/nvidia/apex
 - Install PyTorch from source, master branch of ([pytorch on github](https://www.github.com/pytorch/pytorch)
 - `pip install -r requirements.txt`
 - Download the ImageNet dataset and move validation images to labeled subfolders
