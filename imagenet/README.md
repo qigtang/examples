@@ -2,11 +2,11 @@
 
 This implements training of popular model architectures, such as ResNet, AlexNet, and VGG on the ImageNet dataset.
 
-This version has been modified from using the included DataParallel and DistributedDataParallel modules included in pytorch to a custom DistributedDataParallel included in distributed.py.
+This version has been modified from the DistributedDataParallel module in apex instead of the one in upstream PyTorch. Please install apex from https://www.github.com/nvidia/apex. 
 For description of how this works please see the distributed example included in this repo.
 
 To run multi-gpu on a single node use the command
-```python -m multiproc main.py ...```
+```python -m apex.parallel.multiproc main.py ...```
 adding any normal arguments.
 
 ## Requirements

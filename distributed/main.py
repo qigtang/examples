@@ -10,7 +10,11 @@ from torch.autograd import Variable
 #=====START: ADDED FOR DISTRIBUTED======
 '''Add custom module for distributed'''
 
-from distributed import DistributedDataParallel as DDP
+try:
+    from apex.parallel import DistributedDataParallel as DDP
+except ImportError:
+    raise ImportError("Please install apex from https://www.github.com/nvidia/apex to run this example.")
+
 '''Import distributed data loader'''
 import torch.utils.data
 import torch.utils.data.distributed

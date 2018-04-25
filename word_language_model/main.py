@@ -5,9 +5,13 @@ import math
 import torch
 import torch.nn as nn
 from torch.autograd import Variable
-from fp16util import *
 import data
 import model
+
+try:
+    from apex.fp16_utils import *
+except ImportError:
+    raise ImportError("Please install apex from https://www.github.com/nvidia/apex to run this example.")
 
 parser = argparse.ArgumentParser(description='PyTorch Wikitext-2 RNN/LSTM Language Model')
 parser.add_argument('--data', type=str, default='./data/wikitext-2',

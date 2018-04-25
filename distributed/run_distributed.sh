@@ -1,1 +1,1 @@
-python -m multiproc main.py
+python -m apex.parallel.multiproc main.py

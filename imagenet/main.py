@@ -15,8 +15,12 @@ import torch.utils.data.distributed
 import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 import torchvision.models as models
-from distributed import DistributedDataParallel as DDP
-from fp16util import network_to_half, set_grad, copy_in_params
+
+try:
+    from apex.parallel import DistributedDataParallel as DDP
+    from apex.fp16_utils import network_to_half, set_grad, copy_in_params
+except ImportError:
+    raise ImportError("Please install apex from https://www.github.com/nvidia/apex to run this example.")
 
 import numpy as np
 
