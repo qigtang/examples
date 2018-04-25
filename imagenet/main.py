@@ -18,7 +18,7 @@ import torchvision.models as models
 
 try:
     from apex.parallel import DistributedDataParallel as DDP
-    from apex.fp16_utils import network_to_half, set_grad, copy_in_params
+    from apex.fp16_utils import *
 except ImportError:
     raise ImportError("Please install apex from https://www.github.com/nvidia/apex to run this example.")
 
@@ -114,18 +114,16 @@ def main():
     if args.distributed:
         model = DDP(model)
 
-    global param_copy
+    global model_params, master_params
     if args.fp16:
-        param_copy = [param.clone().type(torch.cuda.FloatTensor).detach() for param in model.parameters()]
-        for param in param_copy:
-            param.requires_grad = True
+        model_params, master_params = prep_param_lists(model)
     else:
-        param_copy = list(model.parameters())
+        master_params = list(model.parameters())
 
     # define loss function (criterion) and optimizer
     criterion = nn.CrossEntropyLoss().cuda()
 
-    optimizer = torch.optim.SGD(param_copy, args.lr,
+    optimizer = torch.optim.SGD(master_params, args.lr,
                                 momentum=args.momentum,
                                 weight_decay=args.weight_decay)
 
@@ -288,15 +286,12 @@ def train(train_loader, model, criterion, optimizer, epoch):
             if args.fp16:
                 model.zero_grad()
                 loss.backward()
-                set_grad(param_copy, list(model.parameters()))
-            
+                model_grads_to_master_grads(model_params, master_params)
                 if args.loss_scale != 1:
-                    for param in param_copy:
+                    for param in master_params:
                         param.grad.data = param.grad.data/args.loss_scale
-
                 optimizer.step()
-                copy_in_params(model, param_copy)
-                torch.cuda.synchronize()
+                master_params_to_model_params(model_params, master_params)
             else:
                 optimizer.zero_grad()
                 loss.backward()
