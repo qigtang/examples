@@ -1,5 +1,7 @@
 # ImageNet training in PyTorch
 
+This example is based on [PyTorch's Imagenet Example](https://github.com/pytorch/examples/tree/master/imagenet).
+
 This implements training of popular model architectures, such as ResNet, AlexNet, and VGG on the ImageNet dataset.
 
 This version has been modified from using the included DataParallel and DistributedDataParallel modules included in pytorch to a custom DistributedDataParallel included in distributed.py.
