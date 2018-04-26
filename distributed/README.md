@@ -1,5 +1,8 @@
 # Basic Multirpocess Example based on the MNIST example
 
+
+This example is based on [PyTorch's MNIST Example](https://github.com/pytorch/examples/tree/master/mnist).
+
 This example demonstrates how to modify a network to use a basic but effective distributed data parallel module. This parallel method is designed to easily run multi-gpu runs on a single node. It was created as current parallel methods integraded into pytorch can induce significant overhead due to python GIL lock. This method will reduce the influence of those overheads and potentially provide a benefit in performance, especially for networks with a significant number of fast running operations.
 
 ## Getting started
