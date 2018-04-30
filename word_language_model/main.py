@@ -120,7 +120,7 @@ criterion = nn.CrossEntropyLoss()
 def repackage_hidden(h):
     """Wraps hidden states in new Variables, to detach them from their history."""
     if torch.is_tensor(h):
-        return Variable(h.data)
+        return h.detach()
     else:
         return tuple(repackage_hidden(v) for v in h)
 
