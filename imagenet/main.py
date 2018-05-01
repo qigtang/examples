@@ -147,10 +147,17 @@ def main():
     normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                      std=[0.229, 0.224, 0.225])
 
+    if(args.arch == "inception_v3"):
+        crop_size = 299
+        val_size = 320 # I chose this value arbitrarily, we can adjust.
+    else:
+        crop_size = 224
+        val_size = 256
+
     train_dataset = datasets.ImageFolder(
         traindir,
         transforms.Compose([
-            transforms.RandomResizedCrop(224),
+            transforms.RandomResizedCrop(crop_size),
             transforms.RandomHorizontalFlip(),
             transforms.ToTensor(),
             normalize,
@@ -167,8 +174,8 @@ def main():
 
     val_loader = torch.utils.data.DataLoader(
         datasets.ImageFolder(valdir, transforms.Compose([
-            transforms.Resize(256),
-            transforms.CenterCrop(224),
+            transforms.Resize(val_size),
+            transforms.CenterCrop(crop_size),
             transforms.ToTensor(),
             normalize,
         ])),
