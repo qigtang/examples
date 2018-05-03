@@ -83,7 +83,7 @@ cudnn.benchmark = True
 best_prec1 = 0
 args = parser.parse_args()
 def main():
-    global best_prec1, args, main_stream
+    global best_prec1, args
 
     args.distributed = args.world_size > 1
     args.gpu = 0
@@ -96,7 +96,6 @@ def main():
         dist.init_process_group(backend=args.dist_backend, init_method=args.dist_url,
                                 world_size=args.world_size)
 
-    main_stream = torch.cuda.Stream()
     if args.fp16:
         assert torch.backends.cudnn.enabled, "fp16 mode requires cudnn backend to be enabled."
 
@@ -288,21 +287,19 @@ def train(train_loader, model, criterion, optimizer, epoch):
 
         loss = loss*args.loss_scale
         # compute gradient and do SGD step
-        with torch.cuda.stream(main_stream):
-
-            if args.fp16:
-                model.zero_grad()
-                loss.backward()
-                model_grads_to_master_grads(model_params, master_params)
-                if args.loss_scale != 1:
-                    for param in master_params:
-                        param.grad.data = param.grad.data/args.loss_scale
-                optimizer.step()
-                master_params_to_model_params(model_params, master_params)
-            else:
-                optimizer.zero_grad()
-                loss.backward()
-                optimizer.step()
+        if args.fp16:
+            model.zero_grad()
+            loss.backward()
+            model_grads_to_master_grads(model_params, master_params)
+            if args.loss_scale != 1:
+                for param in master_params:
+                    param.grad.data = param.grad.data/args.loss_scale
+            optimizer.step()
+            master_params_to_model_params(model_params, master_params)
+        else:
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
 
         # measure elapsed time
         batch_time.update(time.time() - end)
