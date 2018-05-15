@@ -84,7 +84,7 @@ if args.distributed:
 
     '''Initialize distributed communication'''
     dist.init_process_group(args.dist_backend, init_method=args.dist_url,
-                            world_size=args.world_size)
+                            world_size=args.world_size, rank=args.rank)
 
 #=====END:   ADDED FOR DISTRIBUTED======
 
