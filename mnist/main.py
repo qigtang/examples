@@ -6,6 +6,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 from torchvision import datasets, transforms
 from torch.autograd import Variable
+from fp16util import network_to_half, set_grad, copy_in_params
 
 # Training settings
 parser = argparse.ArgumentParser(description='PyTorch MNIST Example')
@@ -25,6 +26,10 @@ parser.add_argument('--seed', type=int, default=1, metavar='S',
                     help='random seed (default: 1)')
 parser.add_argument('--log-interval', type=int, default=10, metavar='N',
                     help='how many batches to wait before logging training status')
+parser.add_argument('--fp16', action='store_true',
+                    help='Run model fp16 mode.')
+parser.add_argument('--loss-scale', type=float, default=1,
+                    help='Loss scaling, positive power of 2 values can improve fp16 convergence.')
 args = parser.parse_args()
 args.cuda = not args.no_cuda and torch.cuda.is_available()
 
@@ -32,6 +37,11 @@ torch.manual_seed(args.seed)
 if args.cuda:
     torch.cuda.manual_seed(args.seed)
 
+if args.fp16:
+    print('running in fp16 mode')
+    assert torch.backends.cudnn.enabled, "fp16 mode requires cudnn backend to be enabled."
+else:
+    print('running in float32 mode')
 
 kwargs = {'num_workers': 1, 'pin_memory': True} if args.cuda else {}
 train_loader = torch.utils.data.DataLoader(
@@ -70,8 +80,18 @@ class Net(nn.Module):
 model = Net()
 if args.cuda:
     model.cuda()
+if args.fp16:
+    model = network_to_half(model)
 
-optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum)
+global param_copy
+if args.fp16:
+    param_copy = [param.clone().type(torch.cuda.FloatTensor).detach() for param in model.parameters()]
+    for param in param_copy:
+        param.requires_grad = True
+else:
+    param_copy = list(model.parameters())
+
+optimizer = optim.SGD(param_copy, lr=args.lr, momentum=args.momentum)
 
 def train(epoch):
     model.train()
@@ -79,11 +99,24 @@ def train(epoch):
         if args.cuda:
             data, target = data.cuda(), target.cuda()
         data, target = Variable(data), Variable(target)
-        optimizer.zero_grad()
         output = model(data)
         loss = F.nll_loss(output, target)
-        loss.backward()
-        optimizer.step()
+        if args.fp16:
+            model.zero_grad()
+            loss.backward()
+            set_grad(param_copy, list(model.parameters()))
+            
+            if args.loss_scale != 1:
+                for param in param_copy:
+                    param.grad.data = param.grad.data/args.loss_scale
+
+            optimizer.step()
+            copy_in_params(model, param_copy)
+            torch.cuda.synchronize()
+        else:
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
         if batch_idx % args.log_interval == 0:
             print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
                 epoch, batch_idx * len(data), len(train_loader.dataset),
