@@ -1,4 +1,5 @@
 from __future__ import print_function
+import time
 import argparse
 import torch
 import torch.nn as nn
@@ -94,6 +95,7 @@ else:
 optimizer = optim.SGD(param_copy, lr=args.lr, momentum=args.momentum)
 
 def train(epoch):
+    t0 = time.time()
     model.train()
     for batch_idx, (data, target) in enumerate(train_loader):
         if args.cuda:
@@ -117,8 +119,9 @@ def train(epoch):
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
-    print('Train Epoch: {} Loss: {:.6f}'.format(
-        epoch, loss.data[0]))
+    t1 = time.time()
+    print('Train Epoch: {} Loss: {:.6f} time {:.3f} seconds'.format(
+        epoch, loss.data[0],  t1-t0))
 
 def test():
     model.eval()
