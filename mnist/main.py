@@ -43,7 +43,7 @@ if args.fp16:
 else:
     print('running in float32 mode')
 
-kwargs = {'num_workers': 1, 'pin_memory': True} if args.cuda else {}
+kwargs = {'num_workers': 8, 'pin_memory': True} if args.cuda else {}
 train_loader = torch.utils.data.DataLoader(
     datasets.MNIST('../data', train=True, download=True,
                    transform=transforms.Compose([
@@ -117,10 +117,8 @@ def train(epoch):
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
-        if batch_idx % args.log_interval == 0:
-            print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
-                epoch, batch_idx * len(data), len(train_loader.dataset),
-                100. * batch_idx / len(train_loader), loss.data[0]))
+    print('Train Epoch: {} Loss: {:.6f}'.format(
+        epoch, loss.data[0]))
 
 def test():
     model.eval()
