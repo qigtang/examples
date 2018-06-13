@@ -114,7 +114,7 @@ def train(epoch):
 
             optimizer.step()
             copy_in_params(model, param_copy)
-            torch.cuda.synchronize()
+            #torch.cuda.synchronize()
         else:
             optimizer.zero_grad()
             loss.backward()
